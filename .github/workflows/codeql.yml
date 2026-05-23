@@ -32,10 +32,10 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: python
-          # security-and-quality includes the security-extended queries plus
-          # maintainability checks — appropriate for an audit library where
-          # subtle bugs are the bigger risk than performance.
-          queries: security-and-quality
+          # security-and-quality query suite + project-specific filters
+          # (e.g., py/should-use-with excluded for tests/examples) live in
+          # the config file alongside the workflow.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3

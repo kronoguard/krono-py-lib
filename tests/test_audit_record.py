@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 
+import krono.audit as audit_mod
 from krono._canonical import canonical_json
 from krono.audit import AuditLog
 from krono.events import AuditEvent, Decision
@@ -370,8 +371,6 @@ class TestFsyncToggle:
         monkeypatch.setattr(os, "fsync", counting)
         # Some implementations may resolve the symbol via `from os import fsync`
         # into their own module's namespace; patch that too if present.
-        import krono.audit as audit_mod
-
         if hasattr(audit_mod, "fsync"):
             monkeypatch.setattr(audit_mod, "fsync", counting)
 
@@ -394,8 +393,6 @@ class TestFsyncToggle:
             calls.append(fd)
 
         monkeypatch.setattr(os, "fsync", counting)
-        import krono.audit as audit_mod
-
         if hasattr(audit_mod, "fsync"):
             monkeypatch.setattr(audit_mod, "fsync", counting)
 
@@ -416,8 +413,10 @@ class TestCloseAndPostClose:
     def test_close_idempotent(self, key_env: str, log_path: Path) -> None:
         a = AuditLog(log_path)
         a.close()
-        # Second close MUST be a no-op (not raise).
-        assert a.close() is None
+        # Second close MUST be a no-op (not raise). Pull the call out of
+        # the assert so `python -O` doesn't strip the side-effecting close.
+        second_close_result = a.close()
+        assert second_close_result is None
 
     def test_context_manager_closes(self, key_env: str, log_path: Path) -> None:
         with AuditLog(log_path) as a:

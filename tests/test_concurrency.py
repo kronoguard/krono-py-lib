@@ -44,7 +44,11 @@ class TestConcurrency:
                             reason=f"thread {i}",
                         )
                     )
-                except BaseException as e:
+                except Exception as e:
+                    # Capture any worker error for assertion in the main
+                    # thread; broad `Exception` is intentional in this
+                    # test harness (CodeQL's py/catch-base-exception note
+                    # is addressed by NOT catching BaseException).
                     with errors_lock:
                         errors.append(e)
 
