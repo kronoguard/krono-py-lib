@@ -1,0 +1,110 @@
+name: Publish to PyPI
+
+on:
+  # Automatic: when the Release workflow creates a GitHub Release, push to PyPI.
+  release:
+    types: [published]
+
+  # Manual: ad-hoc publish, with a TestPyPI safety toggle. Useful for verifying
+  # the pipeline before doing a real release.
+  workflow_dispatch:
+    inputs:
+      test-pypi:
+        description: 'Publish to TestPyPI (https://test.pypi.org) instead of PyPI'
+        type: boolean
+        default: true
+      ref:
+        description: 'Git ref to build from (tag, branch, or SHA). Default: triggering ref.'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name || inputs.ref || github.ref }}
+  cancel-in-progress: false  # Never cancel an in-flight publish — twine isn't idempotent.
+
+jobs:
+  publish:
+    name: Build + publish
+    runs-on: ubuntu-latest
+
+    # The 'environment' gates this job behind the named GitHub Environment.
+    # Configure secrets/protection rules per environment (see docs/PUBLISHING.md):
+    #   - 'pypi'      → holds PYPI_API_KEY (production token; add required-reviewer rule)
+    #   - 'test-pypi' → holds PYPI_API_KEY (TestPyPI token; usually no review rule)
+    environment:
+      name: ${{ inputs.test-pypi && 'test-pypi' || 'pypi' }}
+      url: ${{ inputs.test-pypi && 'https://test.pypi.org/project/krono/' || 'https://pypi.org/project/krono/' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # For release events, github.ref is refs/tags/<tag>; we want that tag's tree.
+          # For dispatch, the user can override via inputs.ref.
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      # NEVER publish anything that fails quality or tests. The PyPI registry
+      # accepts uploads but does NOT allow re-uploads of the same version —
+      # a bad release sticks. Gating here is the last reasonable checkpoint.
+      - name: Quality gate
+        run: make quality
+
+      - name: Test gate (coverage 97%)
+        run: make test
+
+      - name: Build distribution (wheel + sdist)
+        run: |
+          uv build
+          ls -la dist/
+
+      - name: Validate distribution metadata
+        run: uv run --with twine twine check --strict dist/*
+
+      - name: Publish to TestPyPI
+        if: ${{ inputs.test-pypi == true }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_KEY }}
+          repository-url: https://test.pypi.org/legacy/
+          verbose: true
+          skip-existing: false
+          print-hash: true
+
+      - name: Publish to PyPI
+        if: ${{ inputs.test-pypi != true }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_KEY }}
+          verbose: true
+          skip-existing: false
+          print-hash: true
+
+      - name: Summary
+        run: |
+          if [ "${{ inputs.test-pypi }}" = "true" ]; then
+            echo "Published to TestPyPI: https://test.pypi.org/project/krono/"
+            echo ""
+            echo "Verify with:"
+            echo "  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ krono"
+          else
+            echo "Published to PyPI: https://pypi.org/project/krono/"
+            echo ""
+            echo "Verify with:"
+            echo "  pip install krono"
+          fi
