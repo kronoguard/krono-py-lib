@@ -4,6 +4,68 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.1.1 (2026-05-23)
+
+Initial release.
+
+### Features
+
+- feat(canonical): canonical JSON encoder (FR-09) (67d5272)
+- feat(hash): arguments_hash + current_hash HMAC helpers (FR-07, FR-10) (db7e941)
+- feat(exceptions): KronoError hierarchy (FR-24) (af65028)
+- feat(events): Decision enum + AuditEvent frozen dataclass (FR-08, FR-40) (5560c18)
+- feat(audit): AuditLog class — full record + resume + concurrency (16a2fda)
+- feat(verify): verify() + VerifyResult + FailureKind (FR-17..23, FR-37..39) (bad2421)
+- feat(cli): krono verify subcommand (FR-26..29) (8fc298f)
+- feat(api): wire public re-exports + release-gate test scaffolding (44cae1b)
+- feat(examples): four runnable integration patterns (FR-30, FR-35) (4d457dc)
+
+### Bug fixes
+
+- fix(security): resolve 14 CodeQL alerts (1 error, 13 notes) (e93ede6)
+
+### Refactors
+
+- refactor: extract resolve_key to shared _keys module (7c3ef28)
+
+### Tests
+
+- test(regression): byte-layout + key-order + 1000-entry smoke (8717a18)
+
+### Documentation
+
+- docs: README + HONEST-CLAIMS + USAGE (FR-31, FR-32, FR-36) (9663766)
+- docs(readme): make CI badge static while repo is private (5ab908d)
+
+### Chores
+
+- chore: adding some guard rails to not commit unwanted files (9859798)
+- chore: project scaffold (Phase 0) (491b0e7)
+- chore: point repo URLs at kronoguard/krono-py-lib (149fa8f)
+
+### CI
+
+- ci: GitHub Actions (CI + Release) + CHANGELOG + README badges (e5be2fa)
+- ci: add CodeQL workflow for Python security scanning (fbb6e48)
+
+### Other
+
+- Initial commit (d04d0b5)
+- test+refactor: strict UTF-8 in verify + e2e tests + explicit-key message tests (f40bdfa)
+- Revert "docs(readme): make CI badge static while repo is private" (fc95f32)
+- Create CodeQL workflow for security analysis (3ce1261)
+- Merge origin/main into feat/mvp — keep advanced CodeQL, drop default (1d19f83)
+- Merge pull request #1 from kronoguard/feat/mvp (6356016)
+
+### Coverage and gates
+
+- `make quality` clean
+- `make test` passes with statement + branch coverage gate
+
+### Artifacts
+
+Wheel and sdist attached below.
+
 ## [Unreleased]
 
 Initial v1 implementation on the `feat/mvp` branch (PR #1).
