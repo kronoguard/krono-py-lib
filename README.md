@@ -1,5 +1,13 @@
 # krono
 
+[![CI](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml/badge.svg)](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml)
+[![Latest version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/kronoguard/krono-py-lib/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-182-blue)](#)
+[![Coverage](https://img.shields.io/badge/coverage-98.86%25-brightgreen)](#)
+[![Open source](https://img.shields.io/badge/open%20source-yes-green)](#)
+
 Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib only, MIT.
 
 ## What `krono` is
