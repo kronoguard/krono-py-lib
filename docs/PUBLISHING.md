@@ -50,9 +50,15 @@ re-using the wheels attached to the GitHub Release. Reasons:
 
 ## 2. One-time setup
 
+**PyPI account:** `kronoguard` (<https://pypi.org/user/kronoguard/>). This is
+a regular PyPI user account, not a PyPI Organization. The same account name
+is used on TestPyPI (<https://test.pypi.org/user/kronoguard/>). All tokens
+below must be issued from this account; tokens issued by any other account
+will not be able to upload to `kronoguard/krono`.
+
 ### 2.1 Generate the PyPI API token
 
-1. Sign in to <https://pypi.org/manage/account/token/>.
+1. Sign in to <https://pypi.org/manage/account/token/> as `kronoguard`.
 2. **Create API token** → name it `krono-py-lib-ci` → scope it to the
    project `krono` (NOT account-wide; project-scoped tokens limit blast
    radius if the secret leaks).
@@ -60,9 +66,10 @@ re-using the wheels attached to the GitHub Release. Reasons:
 
 ### 2.2 Generate the TestPyPI API token
 
-Same flow at <https://test.pypi.org/manage/account/token/>. TestPyPI is a
-separate registry and requires its own token. Project scope, name
-`krono-py-lib-testci`.
+Same flow at <https://test.pypi.org/manage/account/token/> (sign in as
+`kronoguard`). TestPyPI is a separate registry and requires its own
+token — the prod and TestPyPI accounts are independent even when the
+username matches. Project scope, name `krono-py-lib-testci`.
 
 ### 2.3 Configure GitHub Environments
 
@@ -188,9 +195,10 @@ secret in the repo. Benefits:
 Migration when ready (do NOT do this and the API-token approach together —
 PyPI accepts both, but the token becomes dead config):
 
-1. Sign in to PyPI → project `krono` → **Publishing** → **Add a new
-   trusted publisher** → GitHub:
-   - Owner: `kronoguard`
+1. Sign in to PyPI as `kronoguard` → project `krono` → **Publishing** →
+   **Add a new trusted publisher** → GitHub:
+   - PyPI Project: `krono` (must be owned by the `kronoguard` PyPI account)
+   - Owner: `kronoguard` (the GitHub org; coincidentally the same name)
    - Repository: `krono-py-lib`
    - Workflow filename: `pypi.yml`
    - Environment: `pypi` (or `test-pypi` for the TestPyPI publisher)
@@ -230,8 +238,10 @@ If you need to ship examples or docs to users, either:
 
 ## 8. Reference
 
-- PyPI: <https://pypi.org/project/krono/>
-- TestPyPI: <https://test.pypi.org/project/krono/>
+- PyPI project: <https://pypi.org/project/krono/>
+- PyPI account: <https://pypi.org/user/kronoguard/>
+- TestPyPI project: <https://test.pypi.org/project/krono/>
+- TestPyPI account: <https://test.pypi.org/user/kronoguard/>
 - Release workflow: [`/.github/workflows/release.yml`](../.github/workflows/release.yml)
 - PyPI workflow: [`/.github/workflows/pypi.yml`](../.github/workflows/pypi.yml)
 - CI workflow: [`/.github/workflows/ci.yml`](../.github/workflows/ci.yml)

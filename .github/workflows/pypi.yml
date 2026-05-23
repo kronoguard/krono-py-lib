@@ -1,5 +1,10 @@
 name: Publish to PyPI
 
+# Publishes the krono package to PyPI under the `kronoguard` PyPI account
+# (https://pypi.org/user/kronoguard/). Project page: https://pypi.org/project/krono/.
+# The PYPI_API_KEY secret must be a project-scoped API token issued to that
+# account; see docs/PUBLISHING.md §2 for the one-time setup.
+
 on:
   # Automatic: when the Release workflow creates a GitHub Release, push to PyPI.
   release:
@@ -99,11 +104,13 @@ jobs:
         run: |
           if [ "${{ inputs.test-pypi }}" = "true" ]; then
             echo "Published to TestPyPI: https://test.pypi.org/project/krono/"
+            echo "Account:               https://test.pypi.org/user/kronoguard/"
             echo ""
             echo "Verify with:"
             echo "  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ krono"
           else
             echo "Published to PyPI: https://pypi.org/project/krono/"
+            echo "Account:           https://pypi.org/user/kronoguard/"
             echo ""
             echo "Verify with:"
             echo "  pip install krono"
