@@ -21,11 +21,11 @@ from typing import Any
 
 from krono._canonical import canonical_json
 from krono._hash import arguments_hash, compute_current_hash
+from krono._keys import resolve_key
 from krono.events import AuditEvent, Decision
-from krono.exceptions import ConfigError, MissingKeyError, WriteError
+from krono.exceptions import ConfigError, WriteError
 
 _GENESIS: str = "genesis"
-_MIN_KEY_BYTES: int = 32
 
 # Top-level keys required on the on-disk JSON, in the canonical 11-field
 # schema (FR-21). Includes ``current_hash`` because resume reads a fully
@@ -45,33 +45,6 @@ _REQUIRED_KEYS: frozenset[str] = frozenset(
         "current_hash",
     }
 )
-
-
-def _resolve_key(key: bytes | None, key_env: str) -> bytes:
-    """Resolve the HMAC key per FR-02, raising ``MissingKeyError`` on any defect.
-
-    Order: explicit ``key`` argument (if non-``None``) wins; otherwise read
-    the named env var, hex-decode, require >= 32 raw bytes. No ephemeral
-    fallback EVER. Exception messages reference only the env var name —
-    never key material.
-
-    Raises:
-        MissingKeyError: when no valid key is available.
-    """
-    if key is not None:
-        if len(key) < _MIN_KEY_BYTES:
-            raise MissingKeyError(f"{key_env} shorter than {_MIN_KEY_BYTES} bytes")
-        return key
-    raw = os.environ.get(key_env)
-    if raw is None or raw == "":
-        raise MissingKeyError(f"{key_env} is not set")
-    try:
-        decoded = bytes.fromhex(raw)
-    except ValueError as exc:
-        raise MissingKeyError(f"{key_env} is not valid hex") from exc
-    if len(decoded) < _MIN_KEY_BYTES:
-        raise MissingKeyError(f"{key_env} shorter than {_MIN_KEY_BYTES} bytes")
-    return decoded
 
 
 def _now_utc() -> str:
@@ -188,7 +161,7 @@ class AuditLog:
         fsync: bool = False,
     ) -> None:
         # FR-02: validate key BEFORE any filesystem operation.
-        self._key: bytes = _resolve_key(key, key_env)
+        self._key: bytes = resolve_key(key, key_env)
         self._fsync: bool = fsync
         self._lock: threading.Lock = threading.Lock()
         self._closed: bool = False

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from krono._hash import compute_current_hash
-from krono.audit import _resolve_key
+from krono._keys import resolve_key
 from krono.exceptions import ConfigError
 
 _GENESIS: str = "genesis"
@@ -324,7 +324,7 @@ def verify(
             readable file.
     """
     resolved_path = Path(path)
-    resolved_key = _resolve_key(key, key_env)
+    resolved_key = resolve_key(key, key_env)
     if not resolved_path.exists():
         raise ConfigError(f"audit log not found: {resolved_path}")
     try:
