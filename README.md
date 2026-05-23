@@ -21,25 +21,48 @@ Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib o
 - **Does NOT detect tail truncation.** If an adversary deletes the final N entries, the verifier walks the remaining prefix and returns `ok=True`. Detecting tail truncation requires an external anchor (sidecar signed-head file), which is deferred future work — see `docs/HONEST-CLAIMS.md`.
 - **Not a published product.** v1 is a portfolio piece, bounded to ~3 days of focused work. No SaaS, no daemon, no exporter, no dashboard, no CI, no PyPI release.
 
+## Install
+
+```bash
+pip install krono
+# or, with the MCP integration extra used by examples/note_server.py:
+pip install "krono[mcp]"
+```
+
+Released from <https://pypi.org/project/krono/>. Release/publishing process
+documented in [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
+
 ## Quickstart
 
 ```bash
-# 1. Get the source and install dev extras.
-git clone https://github.com/kronoguard/krono-py-lib.git && cd krono-py-lib
-uv sync --all-extras
-
-# 2. Generate an HMAC key (32 raw bytes, hex-encoded).
+# 1. Generate an HMAC key (32 raw bytes, hex-encoded).
 export KRONO_AUDIT_KEY=$(python -c "import secrets; print(secrets.token_bytes(32).hex())")
 
-# 3. Run the reference example end-to-end (Pattern 1, per-tool inline).
+# 2. Record one event and verify it (~10 lines of Python).
+python - <<'PY'
+import os, tempfile, pathlib
+from krono import AuditLog, Decision, verify
+
+log = pathlib.Path(tempfile.mkdtemp()) / "demo.jsonl"
+with AuditLog(log) as audit:
+    audit.record(tool_name="read_note", decision=Decision.ALLOW,
+                 arguments={"id": "1"}, declared_identity="me",
+                 authenticated_identity=None, reason="demo")
+print("log:", log)
+print("verify:", verify(log))
+PY
+
+# 3. Verify from the CLI too.
+krono verify <log-path-from-above>
+```
+
+Building from source (for development) instead:
+
+```bash
+git clone https://github.com/kronoguard/krono-py-lib.git && cd krono-py-lib
+uv sync --all-extras
+make quality && make test         # full suite incl. §17 acceptance gate
 uv run python examples/note_server.py
-
-# 4. Verify the log the example just produced. The example prints its
-#    log path on stdout; pass that path here. Exits 0 on success.
-uv run krono verify /tmp/krono-demo.jsonl
-
-# 5. (Optional) Run the full test suite, including the §17 acceptance gate.
-make quality && make test
 ```
 
 ## HMAC key management
