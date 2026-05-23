@@ -290,19 +290,42 @@ def _validate_line(
     return seq_result, hash_result
 
 
-def _split_lines(data: bytes) -> list[str]:
-    """Split UTF-8 file bytes into per-record strings (newline-delimited).
+def _split_byte_lines(data: bytes) -> list[bytes]:
+    """Split file bytes on b"\\n" into per-record byte sequences.
 
-    Drops only the trailing empty element produced by the final ``"\\n"``
+    Drops only the trailing empty element produced by the final ``b"\\n"``
     of a well-formed log (FR-13). A blank line in the middle of the file
-    is preserved as ``""`` so FR-37 step 1 catches it (AC-42). A final
-    line lacking ``"\\n"`` is preserved as a non-empty tail (AC-41).
+    is preserved as ``b""`` so FR-37 step 1 catches it (AC-42). A final
+    line lacking ``b"\\n"`` is preserved as a non-empty tail (AC-41).
+
+    Strict UTF-8 decoding happens PER LINE in the verify loop so the
+    offending line number is preserved on invalid bytes (vs. the prior
+    errors="replace" leniency that silently turned invalid bytes into
+    U+FFFD).
     """
-    text = data.decode("utf-8", errors="replace")
-    parts = text.split("\n")
-    if parts and parts[-1] == "":
+    parts = data.split(b"\n")
+    if parts and parts[-1] == b"":
         parts.pop()
     return parts
+
+
+def _decode_line_strict(line_no: int, raw_bytes: bytes) -> str | VerifyFailure:
+    """Strict UTF-8 decode of one line; on failure return a PARSE_ERROR.
+
+    Replaces the previous file-wide ``errors="replace"`` decoding (reviewer
+    note: slightly looser than strict JSONL). Invalid bytes now surface
+    deterministically as ``PARSE_ERROR`` at the offending line — never
+    silently round-tripped through U+FFFD.
+    """
+    try:
+        return raw_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        return VerifyFailure(
+            line=line_no,
+            sequence_number=None,
+            kind=FailureKind.PARSE_ERROR,
+            message=f"line {line_no}: invalid UTF-8 at byte offset {exc.start}",
+        )
 
 
 def verify(
@@ -337,13 +360,20 @@ def verify(
         # FR-22: empty file is ok.
         return VerifyResult(ok=True, entries_checked=0, failure=None)
 
-    parts = _split_lines(data)
+    byte_lines = _split_byte_lines(data)
     prev_hash: str = _GENESIS
     expected_seq: int = 0
 
-    for idx, raw in enumerate(parts):
+    for idx, raw_bytes in enumerate(byte_lines):
         line_no = idx + 1
-        outcome = _validate_line(line_no, raw, expected_seq, prev_hash, resolved_key)
+        decoded = _decode_line_strict(line_no, raw_bytes)
+        if isinstance(decoded, VerifyFailure):
+            return VerifyResult(
+                ok=False,
+                entries_checked=expected_seq,
+                failure=decoded,
+            )
+        outcome = _validate_line(line_no, decoded, expected_seq, prev_hash, resolved_key)
         if isinstance(outcome, VerifyFailure):
             return VerifyResult(
                 ok=False,
