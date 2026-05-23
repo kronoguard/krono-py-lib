@@ -1,0 +1,19 @@
+name: krono CodeQL configuration
+
+# Query suite: security-and-quality is broader than the default 'security'
+# suite — appropriate for an audit library where maintainability defects
+# matter more than perf.
+queries:
+  - uses: security-and-quality
+
+# Path-scoped exclusions:
+# tests/ and examples/ exercise AuditLog's explicit close()/resume() lifecycle
+# ON PURPOSE — they construct, close, reconstruct, and assert chain
+# continuity across the boundary. `try/finally: close()` is the right
+# pattern there; forcing `with` would defeat the test. Suppress the
+# `py/should-use-with` informational note in those paths only; library
+# source under src/ remains scanned for it.
+query-filters:
+  - exclude:
+      id: py/should-use-with
+      tags contain: maintainability

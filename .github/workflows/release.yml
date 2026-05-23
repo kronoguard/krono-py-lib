@@ -1,0 +1,233 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semantic version (e.g., 0.1.1, 1.0.0, 1.0.0-rc.1). Do NOT include the leading "v".'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark this release as a pre-release on GitHub'
+        type: boolean
+        default: false
+      dry-run:
+        description: 'Validate + build only; do not push, tag, or create release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (triggering ref, full history for changelog)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate semver format
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$ ]]; then
+            echo "ERROR: '${{ inputs.version }}' is not a valid semver (MAJOR.MINOR.PATCH[-prerelease][+build])" >&2
+            exit 1
+          fi
+          echo "Validated version: ${{ inputs.version }}"
+
+      - name: Refuse to overwrite an existing tag
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "ERROR: tag v${{ inputs.version }} already exists. Pick a new version." >&2
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Quality gate
+        run: make quality
+
+      - name: Test gate (coverage >= 97%)
+        run: make test
+
+      - name: Bump version in pyproject.toml and __init__.py
+        run: |
+          python <<'PY'
+          import re, pathlib
+          new = "${{ inputs.version }}"
+          # pyproject.toml: version = "..."
+          p = pathlib.Path("pyproject.toml")
+          src = p.read_text()
+          src = re.sub(r'^version\s*=\s*"[^"]*"', f'version = "{new}"', src, count=1, flags=re.M)
+          p.write_text(src)
+          # src/krono/__init__.py: __version__ = "..."
+          q = pathlib.Path("src/krono/__init__.py")
+          src = q.read_text()
+          src = re.sub(r'__version__\s*=\s*"[^"]*"', f'__version__ = "{new}"', src, count=1)
+          q.write_text(src)
+          print(f"Bumped to {new}")
+          PY
+
+      - name: Update README version badge
+        run: |
+          python <<'PY'
+          import re, pathlib
+          new = "${{ inputs.version }}"
+          p = pathlib.Path("README.md")
+          src = p.read_text()
+          # Pattern: shields.io badge of shape `badge/version-X.Y.Z-<color>`
+          src = re.sub(
+              r'badge/version-[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*-',
+              f'badge/version-{new}-',
+              src,
+          )
+          p.write_text(src)
+          PY
+
+      - name: Generate release notes from commits
+        id: changelog
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          DATE=$(date -u +%Y-%m-%d)
+          if [ -z "$LAST_TAG" ]; then
+            echo "No prior tag — using full history."
+            COMMIT_RANGE="HEAD"
+          else
+            echo "Generating since $LAST_TAG."
+            COMMIT_RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          # Group commits by Conventional Commit type for the summary.
+          {
+            echo "## v${{ inputs.version }} ($DATE)"
+            echo ""
+            if [ -n "$LAST_TAG" ]; then
+              echo "Changes since \`$LAST_TAG\`."
+            else
+              echo "Initial release."
+            fi
+            echo ""
+
+            for prefix in "feat" "fix" "refactor" "perf" "test" "docs" "chore" "ci" "build"; do
+              SECTION=$(git log "$COMMIT_RANGE" --pretty=format:"- %s (%h)" --reverse | grep -E "^- ${prefix}(\(|:)" || true)
+              if [ -n "$SECTION" ]; then
+                case "$prefix" in
+                  feat)     HEADER="### Features" ;;
+                  fix)      HEADER="### Bug fixes" ;;
+                  refactor) HEADER="### Refactors" ;;
+                  perf)     HEADER="### Performance" ;;
+                  test)     HEADER="### Tests" ;;
+                  docs)     HEADER="### Documentation" ;;
+                  chore)    HEADER="### Chores" ;;
+                  ci)       HEADER="### CI" ;;
+                  build)    HEADER="### Build system" ;;
+                esac
+                echo "$HEADER"
+                echo ""
+                echo "$SECTION"
+                echo ""
+              fi
+            done
+
+            # Anything that didn't match a known prefix lands here.
+            OTHER=$(git log "$COMMIT_RANGE" --pretty=format:"- %s (%h)" --reverse \
+              | grep -vE "^- (feat|fix|refactor|perf|test|docs|chore|ci|build)(\(|:)" || true)
+            if [ -n "$OTHER" ]; then
+              echo "### Other"
+              echo ""
+              echo "$OTHER"
+              echo ""
+            fi
+
+            echo "### Coverage and gates"
+            echo ""
+            echo "- \`make quality\` clean"
+            echo "- \`make test\` passes with statement + branch coverage gate"
+            echo ""
+            echo "### Artifacts"
+            echo ""
+            echo "Wheel and sdist attached below."
+          } > release_notes.md
+
+          echo "----- release_notes.md preview -----"
+          cat release_notes.md
+
+      - name: Prepend to CHANGELOG.md
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            {
+              echo "# Changelog"
+              echo ""
+              echo "All notable changes to this project are documented here."
+              echo "Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);"
+              echo "this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)."
+              echo ""
+            } > CHANGELOG.md
+          fi
+          # Insert release_notes after the header (lines 1-6).
+          head -n 6 CHANGELOG.md > CHANGELOG.new.md
+          cat release_notes.md >> CHANGELOG.new.md
+          echo "" >> CHANGELOG.new.md
+          tail -n +7 CHANGELOG.md >> CHANGELOG.new.md
+          mv CHANGELOG.new.md CHANGELOG.md
+
+      - name: Build distribution (wheel + sdist)
+        run: |
+          uv build
+          ls -la dist/
+
+      - name: Verify built wheel installs and imports
+        run: |
+          uv run --isolated --with dist/krono-${{ inputs.version }}-py3-none-any.whl --no-project \
+            python -c "import krono; assert krono.__version__ == '${{ inputs.version }}', krono.__version__; print('wheel OK:', krono.__version__)"
+
+      - name: Commit version bump + tag (skip if dry-run)
+        if: ${{ inputs.dry-run == false }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml src/krono/__init__.py README.md CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No version-bump diff to commit (already at requested version)."
+          else
+            git commit -m "chore(release): v${{ inputs.version }}"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create GitHub Release (skip if dry-run)
+        if: ${{ inputs.dry-run == false }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: krono v${{ inputs.version }}
+          body_path: release_notes.md
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry-run == true }}
+        run: |
+          echo "DRY RUN: would have tagged v${{ inputs.version }}, pushed, and created a GitHub release."
+          echo "Built artifacts (not published):"
+          ls -la dist/
