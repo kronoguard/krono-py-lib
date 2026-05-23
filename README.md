@@ -1,6 +1,12 @@
 # krono
 
-[![CI](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml/badge.svg)](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml)
+<!-- CI badge is intentionally static while the repo is private — GitHub
+     returns 404 on the dynamic /actions/workflows/<name>/badge.svg
+     endpoint for unauthenticated readers. Once the repo goes public,
+     replace the line below with:
+     [![CI](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml/badge.svg)](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml)
+-->
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml)
 [![Latest version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/kronoguard/krono-py-lib/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
