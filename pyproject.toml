@@ -37,7 +37,7 @@ dev = [
 krono = "krono.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jrlabs01/krono"
+Homepage = "https://github.com/kronoguard/krono-py-lib"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/krono"]

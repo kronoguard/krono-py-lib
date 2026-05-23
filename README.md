@@ -17,7 +17,7 @@ Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib o
 
 ```bash
 # 1. Get the source and install dev extras.
-git clone https://github.com/jrlabs01/krono.git && cd krono
+git clone https://github.com/kronoguard/krono-py-lib.git && cd krono-py-lib
 uv sync --all-extras
 
 # 2. Generate an HMAC key (32 raw bytes, hex-encoded).
