@@ -1,9 +1,21 @@
 name: Publish to PyPI
 
-# Publishes the krono package to PyPI under the `kronoguard` PyPI account
-# (https://pypi.org/user/kronoguard/). Project page: https://pypi.org/project/krono/.
-# The PYPI_API_KEY secret must be a project-scoped API token issued to that
-# account; see docs/PUBLISHING.md §2 for the one-time setup.
+# Publishes the `krono-py` distribution to PyPI under the `kronoguard`
+# account (https://pypi.org/user/kronoguard/). Project page:
+# https://pypi.org/project/krono-py/.
+#
+# Auth: PyPI Trusted Publishing (OIDC). No long-lived secret. The repo
+# kronoguard/krono-py-lib is registered on PyPI as a trusted publisher for
+# this workflow file; PyPI verifies the GitHub OIDC token from each run
+# and accepts the upload if owner+repo+workflow (+optional environment)
+# match the publisher entry.
+#
+# Migration note: the prior version of this workflow used a project-scoped
+# API token via the PYPI_API_KEY secret. That secret is no longer
+# required and should be deleted from the repo's GitHub Environments to
+# remove dead credentials.
+#
+# See docs/PUBLISHING.md §2 for the Trusted Publishing setup details.
 
 on:
   # Automatic: when the Release workflow creates a GitHub Release, push to PyPI.
@@ -24,8 +36,10 @@ on:
         required: false
         default: ''
 
+# OIDC requires id-token: write at the job (or workflow) level.
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: pypi-${{ github.event.release.tag_name || inputs.ref || github.ref }}
@@ -36,13 +50,14 @@ jobs:
     name: Build + publish
     runs-on: ubuntu-latest
 
-    # The 'environment' gates this job behind the named GitHub Environment.
-    # Configure secrets/protection rules per environment (see docs/PUBLISHING.md):
-    #   - 'pypi'      → holds PYPI_API_KEY (production token; add required-reviewer rule)
-    #   - 'test-pypi' → holds PYPI_API_KEY (TestPyPI token; usually no review rule)
+    # The PyPI Trusted Publisher entry has "Environment name: (Any)", so this
+    # environment block is optional from PyPI's perspective. We keep it for
+    # GitHub-side controls: protection rules (required reviewers, deployment
+    # branch restrictions) can be configured per environment without
+    # touching this workflow.
     environment:
       name: ${{ inputs.test-pypi && 'test-pypi' || 'pypi' }}
-      url: ${{ inputs.test-pypi && 'https://test.pypi.org/project/krono/' || 'https://pypi.org/project/krono/' }}
+      url: ${{ inputs.test-pypi && 'https://test.pypi.org/project/krono-py/' || 'https://pypi.org/project/krono-py/' }}
 
     steps:
       - name: Checkout
@@ -81,21 +96,19 @@ jobs:
       - name: Validate distribution metadata
         run: uv run --with twine twine check --strict dist/*
 
-      - name: Publish to TestPyPI
+      - name: Publish to TestPyPI (OIDC)
         if: ${{ inputs.test-pypi == true }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_API_KEY }}
           repository-url: https://test.pypi.org/legacy/
           verbose: true
           skip-existing: false
           print-hash: true
 
-      - name: Publish to PyPI
+      - name: Publish to PyPI (OIDC)
         if: ${{ inputs.test-pypi != true }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_API_KEY }}
           verbose: true
           skip-existing: false
           print-hash: true
@@ -103,15 +116,15 @@ jobs:
       - name: Summary
         run: |
           if [ "${{ inputs.test-pypi }}" = "true" ]; then
-            echo "Published to TestPyPI: https://test.pypi.org/project/krono/"
+            echo "Published to TestPyPI: https://test.pypi.org/project/krono-py/"
             echo "Account:               https://test.pypi.org/user/kronoguard/"
             echo ""
             echo "Verify with:"
-            echo "  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ krono"
+            echo "  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ krono-py"
           else
-            echo "Published to PyPI: https://pypi.org/project/krono/"
+            echo "Published to PyPI: https://pypi.org/project/krono-py/"
             echo "Account:           https://pypi.org/user/kronoguard/"
             echo ""
             echo "Verify with:"
-            echo "  pip install krono"
+            echo "  pip install krono-py"
           fi

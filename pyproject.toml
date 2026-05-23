@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "krono"
+# Distribution name on PyPI is `krono-py` (the bare `krono` name is owned by
+# a different PyPI user). The Python import name remains `krono` — users
+# `pip install krono-py` then `import krono`.
+name = "krono-py"
 version = "0.1.1"
 description = "Tamper-evident audit records for MCP tool-call decisions."
 readme = "README.md"
