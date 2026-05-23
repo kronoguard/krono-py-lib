@@ -24,12 +24,19 @@ Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib o
 ## Install
 
 ```bash
-pip install krono
+pip install krono-py
 # or, with the MCP integration extra used by examples/note_server.py:
-pip install "krono[mcp]"
+pip install "krono-py[mcp]"
 ```
 
-Released from <https://pypi.org/project/krono/>. Release/publishing process
+Note the **distribution name** is `krono-py` (the bare `krono` name on PyPI
+was already taken). The **import name** is still `krono`:
+
+```python
+from krono import AuditLog, Decision, verify
+```
+
+Released from <https://pypi.org/project/krono-py/>. Release/publishing process
 documented in [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
 
 ## Quickstart

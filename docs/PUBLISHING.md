@@ -48,61 +48,82 @@ re-using the wheels attached to the GitHub Release. Reasons:
 
 ---
 
-## 2. One-time setup
+## 2. One-time setup (PyPI Trusted Publishing / OIDC)
 
-**PyPI account:** `kronoguard` (<https://pypi.org/user/kronoguard/>). This is
-a regular PyPI user account, not a PyPI Organization. The same account name
-is used on TestPyPI (<https://test.pypi.org/user/kronoguard/>). All tokens
-below must be issued from this account; tokens issued by any other account
-will not be able to upload to `kronoguard/krono`.
+**PyPI account:** `kronoguard` (<https://pypi.org/user/kronoguard/>). This
+is a regular PyPI user account, not a PyPI Organization. The same account
+name is also registered on TestPyPI (<https://test.pypi.org/user/kronoguard/>) —
+the prod and TestPyPI accounts are independent even when the username
+matches.
 
-### 2.1 Generate the PyPI API token
+**Distribution name:** `krono-py` on both registries. The bare `krono`
+name on PyPI is owned by a different user. The Python import name remains
+`krono` regardless (`pip install krono-py` → `from krono import …`).
 
-1. Sign in to <https://pypi.org/manage/account/token/> as `kronoguard`.
-2. **Create API token** → name it `krono-py-lib-ci` → scope it to the
-   project `krono` (NOT account-wide; project-scoped tokens limit blast
-   radius if the secret leaks).
-3. Copy the `pypi-...` token. You will see it exactly once.
+**Auth method:** PyPI Trusted Publishing (OIDC). No long-lived secret in
+the repo. The `pypi.yml` workflow uses GitHub Actions OIDC; PyPI verifies
+the OIDC token from each run against a registered trusted-publisher entry
+and accepts the upload if owner+repo+workflow (+optional environment)
+match.
 
-### 2.2 Generate the TestPyPI API token
+### 2.1 Register the trusted publisher on PyPI
 
-Same flow at <https://test.pypi.org/manage/account/token/> (sign in as
-`kronoguard`). TestPyPI is a separate registry and requires its own
-token — the prod and TestPyPI accounts are independent even when the
-username matches. Project scope, name `krono-py-lib-testci`.
+Sign in to <https://pypi.org/manage/account/publishing/> as `kronoguard` →
+**Add a new pending publisher** (or for an existing project, use the
+project's **Publishing** tab):
 
-### 2.3 Configure GitHub Environments
+| Field | Value |
+|---|---|
+| PyPI Project Name | `krono-py` |
+| Owner             | `kronoguard` (the GitHub org) |
+| Repository name   | `krono-py-lib` |
+| Workflow name     | `pypi.yml` |
+| Environment name  | `(Any)` — or `pypi` if you want to lock prod uploads to a named environment |
 
-The `pypi.yml` workflow uses **GitHub Environments** to scope secrets and
-add reviewer rules. Two environments:
+For the FIRST release, this is a "pending publisher" (no project exists
+yet). The first successful upload via OIDC creates the project and the
+entry transitions from "Pending" to active.
 
-| Environment | Secret name | Holds | Recommended protection |
-|---|---|---|---|
-| `pypi`      | `PYPI_API_KEY` | the **production** PyPI token from 2.1   | Required reviewers (1+ org admin); deployment branches: `main` only |
-| `test-pypi` | `PYPI_API_KEY` | the **TestPyPI** token from 2.2          | No reviewers (low-stakes); deployment branches: any |
+### 2.2 Register the trusted publisher on TestPyPI
 
-Configure:
+Same flow at <https://test.pypi.org/manage/account/publishing/>. TestPyPI
+is a separate registry and requires its own publisher entry. Same
+fields:
 
-1. Repo → **Settings → Environments → New environment** → name it `pypi`.
-2. Under **Environment secrets** → **Add secret** → name `PYPI_API_KEY`,
-   value the token from 2.1.
-3. Under **Deployment protection rules** → add **Required reviewers** (your
-   own GitHub handle is fine for a solo project) and **Deployment branches
-   and tags** → "Selected branches" → `main`.
-4. Repeat for `test-pypi`: secret = TestPyPI token from 2.2, protection
-   rules optional.
+| Field | Value |
+|---|---|
+| TestPyPI Project Name | `krono-py` |
+| Owner             | `kronoguard` |
+| Repository name   | `krono-py-lib` |
+| Workflow name     | `pypi.yml` |
+| Environment name  | `(Any)` or `test-pypi` |
 
-Without these, the workflow falls back to a repo-level `PYPI_API_KEY`
-secret if one exists, but the environment-scoped path is the only one that
-gives you the review gate. Configure both.
+### 2.3 (Optional) Configure GitHub Environments for review gates
 
-### 2.4 Reserve the project name on PyPI
+OIDC doesn't NEED GitHub Environments — the workflow runs and PyPI
+verifies. But Environments are the right place to add a **required
+reviewer gate** for prod releases:
 
-The very first upload claims the name. If you want to claim `krono`
-without releasing yet, run the manual workflow once against TestPyPI with
-a `0.0.0a0` pre-release version (after updating `pyproject.toml` to match)
-so you can confirm the pipeline works end-to-end before pushing v0.1.x to
-real PyPI.
+1. Repo → **Settings → Environments → New environment** → name `pypi`.
+2. **Deployment protection rules** → **Required reviewers** (your own
+   handle is fine for a solo project) and **Deployment branches and
+   tags** → "Selected branches" → `main`.
+3. Repeat for `test-pypi` with optional/no protection.
+
+The `pypi.yml` workflow already references these environments; you can
+configure them whenever you want the review gate.
+
+### 2.4 Remove the legacy `PYPI_API_KEY` secret
+
+If a `PYPI_API_KEY` secret was added during the earlier API-token-based
+configuration, **delete it now**. OIDC supersedes it, and a dead secret
+is a permanent exfiltration target. From the repo:
+
+```bash
+gh secret delete PYPI_API_KEY --env pypi || true
+gh secret delete PYPI_API_KEY --env test-pypi || true
+gh secret delete PYPI_API_KEY || true   # repo-level fallback if it existed
+```
 
 ---
 
@@ -122,14 +143,16 @@ real PyPI.
 When `release.yml` succeeds it creates a GitHub Release with the tag
 `v0.1.2`. The `release:published` event fires `pypi.yml`, which gates on
 `make quality && make test`, builds fresh, validates with `twine check`,
-and uploads to PyPI.
+authenticates to PyPI via OIDC, and uploads.
 
 The end state:
 
-- `https://pypi.org/project/krono/0.1.2/` exists with wheel + sdist.
-- `pip install krono==0.1.2` works.
-- `pip install krono` (no version) resolves to `0.1.2` if it's the latest
-  non-prerelease.
+- `https://pypi.org/project/krono-py/0.1.2/` exists with wheel + sdist.
+- `pip install krono-py==0.1.2` works.
+- `pip install krono-py` (no version) resolves to `0.1.2` if it's the
+  latest non-prerelease.
+- `import krono` still works (distribution name and import name differ
+  by design — `krono-py` is the wheel, `krono` is the package).
 
 ---
 
@@ -151,7 +174,7 @@ under the current version in `pyproject.toml`. To verify:
 pip install \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  krono==<version>
+  krono-py==<version>
 
 python -c "import krono; print(krono.__version__)"
 krono verify --help
@@ -171,34 +194,36 @@ in `pyproject.toml` (e.g. `0.1.2.dev1`, `0.1.2.dev2`).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `403 Forbidden` from `twine` | `PYPI_API_KEY` missing, malformed, or scoped to a different project | Verify the secret in the Environment; rotate if old |
-| `400: File already exists` | Trying to re-upload an existing version | Bump the version. PyPI does not permit re-uploads, ever. |
-| `twine check` fails on `Description` | `README.md` not packaged as long-description, or has bad markdown | Confirm `readme = "README.md"` in `pyproject.toml`; check rendering on TestPyPI before re-cutting on PyPI |
-| Wheel installs but `import krono` fails | Source layout mismatch in `pyproject.toml`'s `[tool.hatch.build.targets.wheel] packages` | We package `src/krono`. If you restructure, update this. |
-| `pip install krono` resolves to an older version | New version was uploaded as pre-release (1.0.0-rc.1) | Either release a non-prerelease, or users need `pip install --pre krono` |
-| GitHub Environment "Required reviewers" never approves | Approver is the same person who dispatched the workflow, and GitHub disallows self-approval on protected environments | Either add a second reviewer to the environment, or temporarily relax the rule for this release |
+| `403 The user 'X' isn't allowed to upload to project 'Y'` | Distribution name in `pyproject.toml` differs from what the kronoguard PyPI account owns, OR a different PyPI user owns that name (the prior `krono` failure was exactly this — `krono` is owned by another user; we use `krono-py`) | Confirm `name = "krono-py"` in `pyproject.toml`; if you want a new name, register a trusted-publisher entry for it on PyPI first |
+| `Trusted publisher mismatch` / `invalid_grant` | Workflow filename, repo, owner, or environment doesn't match the publisher entry on PyPI | Inspect <https://pypi.org/manage/account/publishing/> — fields must match exactly. Common mistakes: workflow filename includes the path (`.github/workflows/pypi.yml` instead of `pypi.yml`); environment name set to a value when the publisher entry expects `(Any)` |
+| `400: File already exists` | Re-upload of an existing version | Bump the version. PyPI does not permit re-uploads, ever. |
+| `twine check` fails on `Description` | `README.md` not packaged as long-description, or bad markdown | Confirm `readme = "README.md"` in `pyproject.toml`; check rendering on TestPyPI before PyPI |
+| Wheel installs but `import krono` fails | Source layout mismatch in `[tool.hatch.build.targets.wheel] packages` | We package `src/krono`. The import name is `krono`; the distribution name (`krono-py`) is different and that's OK |
+| `pip install krono-py` resolves to an older version | New version was uploaded as pre-release | Either release a non-prerelease, or users need `pip install --pre krono-py` |
+| GitHub Environment "Required reviewers" never approves | Approver is the same person who dispatched, and GitHub disallows self-approval | Add a second reviewer, or temporarily relax the rule for this release |
 
 ---
 
-## 6. Future work: switch to Trusted Publishing (OIDC)
+## 6. Trusted Publishing (OIDC) — current setup
 
-API tokens are the v0.x default because they're simple to set up. **In a
-future revision, switch to Trusted Publishing** — PyPI's OIDC-based
-mechanism that lets GitHub Actions authenticate without any long-lived
-secret in the repo. Benefits:
+The repo currently uses Trusted Publishing. The migration from API tokens
+(used briefly in the initial v0.1.x setup) happened when PyPI's trusted-
+publisher entry for `kronoguard/krono-py-lib` → `pypi.yml` was registered.
+Confirm at <https://pypi.org/manage/account/publishing/> (and the
+TestPyPI equivalent).
 
-- No `PYPI_API_KEY` secret to leak, rotate, or accidentally print.
-- Per-workflow, per-environment authorization configured on PyPI itself.
-- Audit trail on PyPI shows the exact workflow run + commit SHA that
-  uploaded each release.
+If you ever need to go back to API tokens (don't, but if): re-add
+`PYPI_API_KEY` to the relevant environment and set
+`password: ${{ secrets.PYPI_API_KEY }}` on the `pypa/gh-action-pypi-publish`
+step. The action accepts either auth method; OIDC is preferred whenever
+both are configured.
 
-Migration when ready (do NOT do this and the API-token approach together —
-PyPI accepts both, but the token becomes dead config):
+The earlier (historical) trusted-publisher setup:
 
-1. Sign in to PyPI as `kronoguard` → project `krono` → **Publishing** →
-   **Add a new trusted publisher** → GitHub:
-   - PyPI Project: `krono` (must be owned by the `kronoguard` PyPI account)
-   - Owner: `kronoguard` (the GitHub org; coincidentally the same name)
+1. Sign in to PyPI as `kronoguard` → **Publishing** → **Add a new
+   pending publisher** → GitHub:
+   - PyPI Project Name: `krono-py`
+   - Owner: `kronoguard`
    - Repository: `krono-py-lib`
    - Workflow filename: `pypi.yml`
    - Environment: `pypi` (or `test-pypi` for the TestPyPI publisher)
@@ -220,7 +245,7 @@ For the avoidance of doubt:
 - **Failed `make quality` or `make test` runs** abort before the upload
   step — never partially published.
 - **The `mcp` optional extra** is a marker only; PyPI does not host a
-  separate sub-package. Users get it via `pip install "krono[mcp]"`.
+  separate sub-package. Users get it via `pip install "krono-py[mcp]"`.
 - **Spec files under `spec/`** are gitignored and excluded from the wheel
   by virtue of `[tool.hatch.build.targets.wheel] packages = ["src/krono"]`
   scoping only the library.
@@ -238,9 +263,10 @@ If you need to ship examples or docs to users, either:
 
 ## 8. Reference
 
-- PyPI project: <https://pypi.org/project/krono/>
+- PyPI project: <https://pypi.org/project/krono-py/>
 - PyPI account: <https://pypi.org/user/kronoguard/>
-- TestPyPI project: <https://test.pypi.org/project/krono/>
+- PyPI publishing settings: <https://pypi.org/manage/account/publishing/>
+- TestPyPI project: <https://test.pypi.org/project/krono-py/>
 - TestPyPI account: <https://test.pypi.org/user/kronoguard/>
 - Release workflow: [`/.github/workflows/release.yml`](../.github/workflows/release.yml)
 - PyPI workflow: [`/.github/workflows/pypi.yml`](../.github/workflows/pypi.yml)
