@@ -48,13 +48,20 @@ export KRONO_AUDIT_KEY=$(python -c "import secrets; print(secrets.token_bytes(32
 # 2. Record one event and verify it (~10 lines of Python).
 python - <<'PY'
 import os, tempfile, pathlib
-from krono import AuditLog, Decision, verify
+from krono import AuditLog, Decision, Identity, verify
 
 log = pathlib.Path(tempfile.mkdtemp()) / "demo.jsonl"
 with AuditLog(log) as audit:
+    # v0.1.x two-string form still works:
     audit.record(tool_name="read_note", decision=Decision.ALLOW,
                  arguments={"id": "1"}, declared_identity="me",
                  authenticated_identity=None, reason="demo")
+    # v0.2.0 adds an Identity dataclass as a constructor-side
+    # convenience — on-disk format is byte-identical to v0.1.x:
+    audit.record(tool_name="read_note", decision=Decision.ALLOW,
+                 arguments={"id": "2"},
+                 identity=Identity(declared="me"),
+                 reason="demo-with-identity")
 print("log:", log)
 print("verify:", verify(log))
 PY
