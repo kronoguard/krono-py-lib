@@ -12,7 +12,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from krono.verify import VerifyFailure
+    # Import from the leaf ``krono.results`` module (not ``krono.verify``) to
+    # avoid a static import cycle with ``verify.py`` — which imports
+    # ``ConfigError`` from this module at runtime. ``krono.results`` is a
+    # leaf with no krono dependencies, so the TYPE_CHECKING import is cycle-
+    # free under both runtime and static analysis (CodeQL ``py/import-cycle``).
+    from krono.results import VerifyFailure
 
 
 class KronoError(Exception):
