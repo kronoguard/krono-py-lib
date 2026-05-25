@@ -3,17 +3,17 @@
 Public API surface is intentionally narrow. Each member is implemented
 in its own submodule; this file only re-exports them.
 
-Deviations from source-requirements §10 (see spec/SPEC_KRONO_PY_LIB.md
-"Deviations" table): ``Identity`` is dropped in v1, ``VerifyError`` is
-dropped in v1.
+v0.2.0 lifts the v1 deviations from source-requirements §10: ``Identity``
+(FR-41/42) and ``VerifyError`` (FR-43) are now part of the public API.
 """
 
 from krono.audit import AuditLog
 from krono.events import AuditEvent, Decision
-from krono.exceptions import ConfigError, KronoError, MissingKeyError, WriteError
+from krono.exceptions import ConfigError, KronoError, MissingKeyError, VerifyError, WriteError
+from krono.identity import Identity
 from krono.verify import FailureKind, VerifyFailure, VerifyResult, verify
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "AuditEvent",
@@ -21,8 +21,10 @@ __all__ = [
     "ConfigError",
     "Decision",
     "FailureKind",
+    "Identity",
     "KronoError",
     "MissingKeyError",
+    "VerifyError",
     "VerifyFailure",
     "VerifyResult",
     "WriteError",

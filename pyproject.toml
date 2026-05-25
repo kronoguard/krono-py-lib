@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # a different PyPI user). The Python import name remains `krono` — users
 # `pip install krono-py` then `import krono`.
 name = "krono-py"
-version = "0.1.1"
+version = "0.2.0"
 description = "Tamper-evident audit records for MCP tool-call decisions."
 readme = "README.md"
 requires-python = ">=3.11"
