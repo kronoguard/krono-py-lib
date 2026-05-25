@@ -191,7 +191,10 @@ jobs:
 
       - name: Verify built wheel installs and imports
         run: |
-          uv run --isolated --with dist/krono-${{ inputs.version }}-py3-none-any.whl --no-project \
+          # PEP 427: hyphens in the distribution name become underscores in
+          # the wheel filename. Distribution is ``krono-py``, so the wheel is
+          # ``krono_py-<version>-py3-none-any.whl``. Import name remains ``krono``.
+          uv run --isolated --with dist/krono_py-${{ inputs.version }}-py3-none-any.whl --no-project \
             python -c "import krono; assert krono.__version__ == '${{ inputs.version }}', krono.__version__; print('wheel OK:', krono.__version__)"
 
       - name: Commit version bump + tag (skip if dry-run)
