@@ -24,6 +24,7 @@ from krono._hash import arguments_hash, compute_current_hash
 from krono._keys import resolve_key
 from krono.events import AuditEvent, Decision
 from krono.exceptions import ConfigError, WriteError
+from krono.identity import Identity
 
 _GENESIS: str = "genesis"
 
@@ -202,8 +203,9 @@ class AuditLog:
         tool_name: str,
         decision: Decision | str,
         arguments: Mapping[str, Any],
-        declared_identity: str | None,
-        authenticated_identity: str | None,
+        declared_identity: str | None = None,
+        authenticated_identity: str | None = None,
+        identity: Identity | None = None,
         reason: str = "",
     ) -> AuditEvent:
         """Append one audit event and return the frozen ``AuditEvent`` written.
@@ -213,7 +215,16 @@ class AuditLog:
         serialized by ``self._lock`` (FR-12) and is exactly one
         ``write()`` call carrying ``payload + "\\n"`` (FR-13).
 
+        The ``identity=`` kwarg (FR-41) is a constructor-side convenience:
+        passing an :class:`~krono.identity.Identity` is equivalent to
+        passing ``declared_identity=identity.declared`` and
+        ``authenticated_identity=identity.authenticated`` — the on-disk
+        format is byte-identical to v0.1.1. ``identity=`` is mutually
+        exclusive with either of the explicit per-field kwargs.
+
         Raises:
+            TypeError: when ``identity=`` is passed alongside
+                ``declared_identity=`` or ``authenticated_identity=``.
             ValueError: per FR-03 when ``tool_name`` is empty, ``decision``
                 is not in ``{"allow", "deny", Decision.ALLOW, Decision.DENY}``,
                 or an identity field has the wrong type.
@@ -221,6 +232,18 @@ class AuditLog:
                 instance is closed; per FR-03 when ``arguments`` is not
                 JSON-canonicalizable.
         """
+        # --- FR-41 mutual exclusion (BEFORE any other validation) ---
+        if identity is not None and (
+            declared_identity is not None or authenticated_identity is not None
+        ):
+            raise TypeError(
+                "identity= is mutually exclusive with declared_identity=/authenticated_identity="
+            )
+        if identity is not None:
+            declared_identity, authenticated_identity = (
+                identity.declared,
+                identity.authenticated,
+            )
         # --- FR-03 validation (BEFORE any file touch) ---
         if self._closed:
             raise WriteError("AuditLog is closed")
