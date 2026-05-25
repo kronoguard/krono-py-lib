@@ -69,6 +69,20 @@ The two-field identity shape is the most-misused part of `krono`'s API. This sec
 
 **The reason both fields exist:** so that "the auth boundary did not run on this request" is observable in the audit log months after the fact. Once you collapse the two into one, there is no way to tell from the log whether a recorded principal was verified or merely declared. That distinction is what makes the audit log forensically useful.
 
+**v0.2.0 — `Identity` dataclass (FR-41/42).** As of v0.2.0, `record()` also accepts a frozen `Identity(declared, authenticated=None)` dataclass — a constructor-side convenience that bundles the two fields into one value object. The on-disk JSONL format is **byte-identical** to v0.1.x: `record()` decomposes the `Identity` into the same two top-level string fields before write (AC-44).
+
+```python
+from krono import AuditLog, Identity
+
+with AuditLog(path) as a:
+    # Equivalent to record(declared_identity="me", authenticated_identity="user-42").
+    a.record(tool_name="read_note", decision="allow", arguments={"id": "1"},
+             identity=Identity(declared="me", authenticated="user-42"),
+             reason="demo")
+```
+
+`identity=` is **mutually exclusive** with the per-field kwargs — passing both raises `TypeError` BEFORE any file work, so an inconsistent call cannot leave the chain in a partial state. The two-string form remains supported; pick whichever reads better at the call site. The `Identity.authenticated=None` default preserves the "auth boundary did not run" semantics — `None` still serializes as JSON `null`; the library never substitutes `"unknown"` or falls back to `declared`.
+
 ## Operating notes
 
 **Key generation:**
@@ -123,3 +137,14 @@ run_tool_body()
 Acceptable ONLY if the operator has explicitly accepted that audit gaps will occur during I/O outages. Useful for low-stakes deployments where tool availability matters more than audit completeness — but the operator must understand that an attacker who can cause `WriteError` (fill the disk, revoke the mount) can now run tools without leaving an audit trail.
 
 **Do not pick one universally.** The right pattern depends on whether the integrator's deployment treats audit gaps as a worse failure than tool unavailability, or the other way around. `krono` does not encode a preference — `WriteError` propagates and the integrator decides. The library's job is to make sure neither path is silent: a successful `record()` is durable, and a failed `record()` is loud.
+
+**`VerifyError` opt-in wrap (v0.2.0, FR-43).** `verify()` itself still returns `VerifyResult(ok=False, ...)` on tampering — it never raises. The v0.2.0 release adds `VerifyError(KronoError)` as an explicit opt-in exception wrapper for callers that prefer exception flow. The canonical pattern:
+
+```python
+from krono import verify, VerifyError
+
+if not (r := verify(path)).ok:
+    raise VerifyError(r.failure)
+```
+
+`VerifyError.failure` carries the original `VerifyFailure` by reference (no copy). `str(VerifyError(f))` returns a one-line summary in the shape `krono verify failed at line <L> (sequence <S>): <kind>: <message>`, with the literal hyphen `-` substituted for `<S>` when `failure.sequence_number is None` (per FR-39 — applies to `PARSE_ERROR` and to `MISSING_FIELD` where `sequence_number` itself is the missing field). `VerifyError` is a subclass of `KronoError`, so existing `except KronoError:` handlers catch it without code changes.
