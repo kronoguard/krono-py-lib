@@ -6,6 +6,55 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## v0.2.0 (2026-05-25)
 
+Changes since `v0.1.1`.
+
+### Features
+
+- feat(pypi): publish as 'krono-py' via Trusted Publishing (OIDC) (45dd3c9)
+- feat: Identity dataclass + VerifyError exception (FR-41/42/43) (3bcb8a0)
+
+### Bug fixes
+
+- fix(ci): correct wheel filename in release.yml verify step (c395521)
+
+### Refactors
+
+- refactor: extract verify result types into krono.results (breaks codeql import cycle) (52ca9d5)
+
+### Documentation
+
+- docs: README + USAGE + CHANGELOG for v0.2.0 (Identity, VerifyError) (0124d3e)
+- docs(readme): resolve v0.2.0 doc-consistency drift (261477f)
+
+### Chores
+
+- chore: sync uv.lock to v0.1.1 (05f0af1)
+- chore: gitignore .understand-anything/ tool output (0a7fbca)
+
+### CI
+
+- ci: PyPI publish workflow + PUBLISHING.md + README install section (cc110d8)
+- ci(pypi): name the kronoguard PyPI account explicitly (3a59509)
+
+### Other
+
+- Merge pull request #2 from kronoguard/feat/pypi-publishing (1f020cc)
+- Merge pull request #3 from kronoguard/feat/publish-as-krono-py (093204e)
+- test+fix: Identity, VerifyError, AC-44 cross-version compat (FR-41/42/43) (52c2cf2)
+- Merge pull request #5 from kronoguard/feat/v0.2.0 (16e34a1)
+- Merge pull request #6 from kronoguard/fix/release-wheel-filename (b57522f)
+
+### Coverage and gates
+
+- `make quality` clean
+- `make test` passes with statement + branch coverage gate
+
+### Artifacts
+
+Wheel and sdist attached below.
+
+## v0.2.0 (2026-05-25)
+
 Lifts the two v1 "mystery API" deviations (Identity, VerifyError) into a defined, tested v0.2.0 surface. On-disk format unchanged from v0.1.x — logs written under v0.1.x verify byte-identically under v0.2.0 (AC-44).
 
 ### Added
