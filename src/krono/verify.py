@@ -9,14 +9,25 @@ checks for that line are not performed.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from krono._hash import compute_current_hash
 from krono._keys import resolve_key
 from krono.exceptions import ConfigError
+
+# Result types live in their own leaf module (krono.results) so that
+# krono.exceptions can reference VerifyFailure under TYPE_CHECKING without
+# creating a static import cycle with this module. Re-exported here for
+# backward compatibility with callers that import from ``krono.verify``.
+from krono.results import FailureKind, VerifyFailure, VerifyResult
+
+__all__ = [
+    "FailureKind",
+    "VerifyFailure",
+    "VerifyResult",
+    "verify",
+]
 
 _GENESIS: str = "genesis"
 
@@ -36,58 +47,6 @@ _REQUIRED_KEYS: frozenset[str] = frozenset(
         "current_hash",
     }
 )
-
-
-class FailureKind(StrEnum):
-    """Per FR-38, lowercase snake_case ``str`` values.
-
-    Members map to the six FR-37 verification checks. ``FailureKind``
-    is a ``str`` enum, so ``failure.kind == "content_tampered"`` and
-    ``failure.kind is FailureKind.CONTENT_TAMPERED`` both work.
-    """
-
-    PARSE_ERROR = "parse_error"
-    MISSING_FIELD = "missing_field"
-    UNEXPECTED_FIELD = "unexpected_field"
-    SEQUENCE_GAP = "sequence_gap"
-    CHAIN_BREAK = "chain_break"
-    CONTENT_TAMPERED = "content_tampered"
-
-
-@dataclass(frozen=True)
-class VerifyFailure:
-    """One verification failure, per FR-18/FR-19/FR-20/FR-21 and FR-39.
-
-    ``line`` is 1-indexed. ``sequence_number`` is the parsed value from
-    the offending event, or ``None`` when the failure prevented sequence
-    extraction (``PARSE_ERROR``, or ``MISSING_FIELD`` where
-    ``sequence_number`` itself was missing). ``expected``/``actual`` are
-    populated only for ``CONTENT_TAMPERED``, ``SEQUENCE_GAP``, and
-    ``CHAIN_BREAK``; ``None`` otherwise (the JSON serializer omits them
-    in that case per the §Interfaces field-presence rules).
-    """
-
-    line: int
-    sequence_number: int | None
-    kind: FailureKind
-    message: str
-    expected: str | int | None = None
-    actual: str | int | None = None
-
-
-@dataclass(frozen=True)
-class VerifyResult:
-    """Outcome of a ``verify()`` call.
-
-    ``ok`` is ``True`` iff the file is consistent under the FR-37 check
-    order. ``entries_checked`` is the count of lines that FULLY PASSED
-    all six checks (FR-39); the failing line is never counted. ``failure``
-    is ``None`` on success.
-    """
-
-    ok: bool
-    entries_checked: int
-    failure: VerifyFailure | None = None
 
 
 # Sentinel returned by per-check helpers when the check passed.

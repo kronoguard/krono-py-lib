@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.0 (2026-05-25)
+
+Lifts the two v1 "mystery API" deviations (Identity, VerifyError) into a defined, tested v0.2.0 surface. On-disk format unchanged from v0.1.x — logs written under v0.1.x verify byte-identically under v0.2.0 (AC-44).
+
+### Added
+
+- feat: `Identity(declared, authenticated=None)` frozen dataclass at `krono.identity` (FR-41) — a constructor-side convenience for the two-field identity contract.
+- feat: `AuditLog.record(..., identity=Identity(...))` kwarg (FR-42) — mutually exclusive with `declared_identity=`/`authenticated_identity=`. `TypeError` is raised BEFORE any file work when both shapes are passed together, so a misuse never leaves the chain in a partial state.
+- feat: `VerifyError(KronoError)` opt-in exception wrapper at `krono.exceptions` (FR-43). `verify()` still does NOT raise on tampering — `VerifyError` is reachable only via an explicit caller-side `raise VerifyError(r.failure)`. `str(VerifyError(f))` emits a one-line summary in the FR-43 `_format` shape: `krono verify failed at line <L> (sequence <S>): <kind>: <message>`, with literal `-` when `sequence_number is None`.
+
+### Changed
+
+- `AuditLog.record()` signature: `declared_identity` and `authenticated_identity` now default to `None` to permit the `identity=`-only shape. v0.1.x callers passing the two strings continue to work byte-identically — no migration required.
+
+### Unchanged (load-bearing invariant)
+
+- On-disk JSONL schema: same 11 top-level fields, same canonical-JSON encoding, same HMAC-SHA256 input field set. `Identity` is decomposed inside `record()` and never reaches disk. Logs written under v0.1.x verify under v0.2.0 with `ok=True`. Regression-pinned by `tests/test_regression.py::test_ac44_v01x_format_log_verifies_under_v020` and `::test_ac44_v01x_log_with_identity_kwarg_decomposes_identically`.
+
+### Tests
+
+- 25 new tests across `tests/test_identity.py`, `tests/test_verify.py`, `tests/test_regression.py`. Total suite: 207 tests, 98.92% coverage (gate 97%).
+
+### Migration notes
+
+- No source changes required for v0.1.x callers. To adopt the v0.2.0 surface incrementally:
+  - Replace `declared_identity=D, authenticated_identity=A` call sites with `identity=Identity(D, A)` for readability — bytes on disk are identical.
+  - Wrap `verify()` callers that want exception flow: `if not (r := verify(p)).ok: raise VerifyError(r.failure)`.
+
 ## v0.1.1 (2026-05-23)
 
 Initial release.

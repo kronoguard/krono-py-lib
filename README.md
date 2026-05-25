@@ -1,11 +1,11 @@
 # krono
 
 [![CI](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml/badge.svg)](https://github.com/kronoguard/krono-py-lib/actions/workflows/ci.yml)
-[![Latest version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/kronoguard/krono-py-lib/releases)
+[![Latest version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/kronoguard/krono-py-lib/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-182-blue)](#)
-[![Coverage](https://img.shields.io/badge/coverage-98.86%25-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-207-blue)](#)
+[![Coverage](https://img.shields.io/badge/coverage-98.92%25-brightgreen)](#)
 [![Open source](https://img.shields.io/badge/open%20source-yes-green)](#)
 
 Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib only, MIT.
@@ -19,7 +19,7 @@ Tamper-evident audit records for MCP tool-call decisions. Python 3.11+, stdlib o
 - **Not a policy / allow-deny engine.** The integrator decides allow vs. deny; `krono` records the decision. There is no built-in policy DSL, no approval workflow, no rule store.
 - **Not a multi-process append target.** One `AuditLog` instance per file per process. Multi-process writes against the same file are undefined behavior in v1.
 - **Does NOT detect tail truncation.** If an adversary deletes the final N entries, the verifier walks the remaining prefix and returns `ok=True`. Detecting tail truncation requires an external anchor (sidecar signed-head file), which is deferred future work — see `docs/HONEST-CLAIMS.md`.
-- **Not a published product.** v1 is a portfolio piece, bounded to ~3 days of focused work. No SaaS, no daemon, no exporter, no dashboard, no CI, no PyPI release.
+- **Not a SaaS product.** Library-only — no daemon, no exporter, no dashboard, no policy engine. Released on PyPI as [`krono-py`](https://pypi.org/project/krono-py/) (see [Install](#install)); a small portfolio-scope library, not a hosted service.
 
 ## Install
 
@@ -48,13 +48,20 @@ export KRONO_AUDIT_KEY=$(python -c "import secrets; print(secrets.token_bytes(32
 # 2. Record one event and verify it (~10 lines of Python).
 python - <<'PY'
 import os, tempfile, pathlib
-from krono import AuditLog, Decision, verify
+from krono import AuditLog, Decision, Identity, verify
 
 log = pathlib.Path(tempfile.mkdtemp()) / "demo.jsonl"
 with AuditLog(log) as audit:
+    # v0.1.x two-string form still works:
     audit.record(tool_name="read_note", decision=Decision.ALLOW,
                  arguments={"id": "1"}, declared_identity="me",
                  authenticated_identity=None, reason="demo")
+    # v0.2.0 adds an Identity dataclass as a constructor-side
+    # convenience — on-disk format is byte-identical to v0.1.x:
+    audit.record(tool_name="read_note", decision=Decision.ALLOW,
+                 arguments={"id": "2"},
+                 identity=Identity(declared="me"),
+                 reason="demo-with-identity")
 print("log:", log)
 print("verify:", verify(log))
 PY
@@ -103,6 +110,10 @@ def read_note(audit, note_id, client_name):
         authenticated_identity=None,          # auth boundary did not run
         reason="default-allow read tool",
     )
+    # Equivalent v0.2.0 form using the Identity dataclass (FR-41/42) —
+    # on-disk bytes are identical to the two-string call above:
+    #   audit.record(..., identity=Identity(declared=client_name),
+    #                reason="default-allow read tool")
     return f"<note id={note_id}>"  # real tool body would do the DB read
 
 def delete_note(audit, note_id, client_name):
