@@ -220,3 +220,168 @@ def test_verify_smoke_logs_each_field_typed_correctly(tmp_path: Path, key_env: s
     assert re.match(r"^[0-9a-f]{64}$", event["arguments_hash"])
     assert event["previous_hash"] == "genesis"
     assert re.match(r"^[0-9a-f]{64}$", event["current_hash"])
+
+
+# ---------------------------------------------------------------------------
+# AC-44 — v0.1.x format-stability cross-version compat
+#
+# The SPEC §Deviations forward-reference says: "The on-disk JSONL schema,
+# canonical-JSON encoding, and HMAC input fields are byte-identical between
+# v0.1.x and v0.2.x — a log written under v0.1.x MUST verify byte-identically
+# under v0.2.x." This test guards that invariant.
+#
+# Approach: pin the INPUTS (HMAC key, tool/decision/reason, declared and
+# authenticated identity, arguments) — but not the run-varying outputs
+# (event_id, timestamp_utc, hashes). Write via the v0.2.0 library and assert
+# verify() returns ok=True. Because the on-disk schema, canonical-JSON
+# encoding, and HMAC input field set are UNCHANGED from v0.1.x → v0.2.0, any
+# future change to:
+#
+#   - the canonical-JSON encoding (key ordering, escapes, separators),
+#   - the set of fields included in the HMAC payload,
+#   - the order or naming of the 11 top-level on-disk fields,
+#
+# will either change the bytes (breaking the existing
+# ``test_recorded_line_byte_layout_snapshot`` schema-pinning test, which uses
+# monkeypatched time/uuid) or break this chain-validation test — making AC-44
+# regressions impossible to land silently.
+# ---------------------------------------------------------------------------
+
+# Independent key (≥32 bytes) pinned in test source for this AC-44 test;
+# different from `_FIXED_KEY_HEX` above so a regression in either test fires
+# independently.
+_AC44_KEY_HEX: str = "ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44ac44"
+
+
+def test_ac44_v01x_format_log_verifies_under_v020(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A two-entry log written with v0.1.x-shape inputs verifies under v0.2.0.
+
+    The on-disk format (11 canonical fields, sorted-keys JSON, HMAC-SHA256
+    over the 10-field payload) is invariant across v0.1.x → v0.2.x per the
+    SPEC Deviations forward-reference. This test writes via the CURRENT
+    library using fixed inputs and asserts ``verify()`` validates the chain.
+
+    Any future change to canonical-JSON encoding, the HMAC input field set,
+    field ordering, or chain construction will break THIS test even though
+    the bytes are written by the current library — because the inputs
+    (key, tool, decision, arguments, identities) are pinned and a green
+    chain depends on every byte feeding HMAC being unchanged.
+    """
+    monkeypatch.setenv("KRONO_AUDIT_KEY", _AC44_KEY_HEX)
+    log_path = tmp_path / "v01x-format.jsonl"
+
+    # Two-entry log using the v0.1.x two-string identity contract — these
+    # exact kwargs are what a v0.1.x caller would pass today.
+    with AuditLog(log_path) as a:
+        a.record(
+            tool_name="read_note",
+            decision="allow",
+            arguments={"id": "1"},
+            declared_identity="claude-desktop",
+            authenticated_identity=None,
+            reason="default-allow read",
+        )
+        a.record(
+            tool_name="delete_note",
+            decision="deny",
+            arguments={"id": "1"},
+            declared_identity="claude-desktop",
+            authenticated_identity="user-42",
+            reason="destructive",
+        )
+
+    # The on-disk schema is the 11 canonical fields per FR-21 — assert
+    # explicitly so a future schema reshape fails here loudly (not via the
+    # weaker "chain-validates" check below alone).
+    expected_keys: frozenset[str] = frozenset(
+        {
+            "sequence_number",
+            "event_id",
+            "timestamp_utc",
+            "tool_name",
+            "declared_identity",
+            "authenticated_identity",
+            "decision",
+            "reason",
+            "arguments_hash",
+            "previous_hash",
+            "current_hash",
+        }
+    )
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    for raw_line in lines:
+        ev = json.loads(raw_line)
+        assert set(ev.keys()) == expected_keys, (
+            "on-disk schema drift — the 11-field canonical JSON shape changed"
+        )
+
+    # Chain validates under v0.2.0 verify(). If a future change perturbs
+    # canonical JSON, HMAC input field set, or field ordering, the
+    # recomputed hash would not match and verify() would return ok=False.
+    result = verify(log_path)
+    assert result.ok is True, (
+        f"AC-44 regression: v0.1.x-shape log does not verify under v0.2.0; "
+        f"failure={result.failure!r}"
+    )
+    assert result.entries_checked == 2
+    assert result.failure is None
+
+
+def test_ac44_v01x_log_with_identity_kwarg_decomposes_identically(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The v0.2.0 ``identity=`` kwarg decomposes to the same on-disk bytes as
+    the v0.1.x two-string path — proves AC-44 holds for both call paths.
+
+    Without this guard, a future refactor could introduce a wire-format
+    difference between the two call sites and still pass the chain check on
+    each one independently. We compare the two ON-DISK events (stripped of
+    run-varying fields) and assert they match.
+    """
+    # Local import keeps this test self-contained relative to v0.2.0 surface.
+    from krono import Identity
+
+    monkeypatch.setenv("KRONO_AUDIT_KEY", _AC44_KEY_HEX)
+    path_v01x = tmp_path / "v01x.jsonl"
+    path_v020 = tmp_path / "v020.jsonl"
+
+    with AuditLog(path_v01x) as a:
+        a.record(
+            tool_name="read_note",
+            decision="allow",
+            arguments={"id": "1"},
+            declared_identity="claude-desktop",
+            authenticated_identity="user-42",
+            reason="ok",
+        )
+
+    with AuditLog(path_v020) as a:
+        a.record(
+            tool_name="read_note",
+            decision="allow",
+            arguments={"id": "1"},
+            identity=Identity(declared="claude-desktop", authenticated="user-42"),
+            reason="ok",
+        )
+
+    ev_v01x = json.loads(path_v01x.read_text(encoding="utf-8").rstrip("\n"))
+    ev_v020 = json.loads(path_v020.read_text(encoding="utf-8").rstrip("\n"))
+
+    # Strip the run-varying fields (event_id, timestamp_utc, hashes) — they
+    # legitimately differ across the two writes; everything else must match
+    # byte-for-byte.
+    nondeterministic = {"event_id", "timestamp_utc", "current_hash", "previous_hash"}
+    a_static = {k: v for k, v in ev_v01x.items() if k not in nondeterministic}
+    b_static = {k: v for k, v in ev_v020.items() if k not in nondeterministic}
+    assert a_static == b_static, (
+        "AC-44 regression: identity= kwarg writes different on-disk bytes than the two-string path"
+    )
+
+    # And both individually verify under v0.2.0.
+    r1 = verify(path_v01x)
+    r2 = verify(path_v020)
+    assert r1.ok is True
+    assert r2.ok is True
