@@ -64,6 +64,21 @@ class VerifyError(KronoError):
     """
 
     def __init__(self, failure: VerifyFailure) -> None:
-        """Store ``failure`` and forward its string form to :class:`Exception`."""
+        """Store ``failure`` and forward the FR-43 ``_format`` string to :class:`Exception`."""
         self.failure: VerifyFailure = failure
-        super().__init__(str(failure))
+        super().__init__(self._format(failure))
+
+    @staticmethod
+    def _format(failure: VerifyFailure) -> str:
+        """Render ``failure`` as the FR-43 one-line summary used by ``str(err)``.
+
+        Shape: ``krono verify failed at line <L> (sequence <S>): <kind>: <message>``.
+        When ``failure.sequence_number is None`` (``PARSE_ERROR``, or
+        ``MISSING_FIELD`` where ``sequence_number`` is itself missing per FR-39),
+        ``<S>`` is rendered as the literal hyphen ``-`` for log-column stability.
+        """
+        seq = "-" if failure.sequence_number is None else str(failure.sequence_number)
+        return (
+            f"krono verify failed at line {failure.line} "
+            f"(sequence {seq}): {failure.kind.value}: {failure.message}"
+        )

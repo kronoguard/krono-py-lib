@@ -22,10 +22,11 @@ from typing import Any
 
 import pytest
 
+import krono
 from krono._canonical import canonical_json
 from krono.audit import AuditLog
-from krono.exceptions import ConfigError, MissingKeyError
-from krono.verify import FailureKind, verify
+from krono.exceptions import ConfigError, KronoError, MissingKeyError, VerifyError
+from krono.verify import FailureKind, VerifyFailure, verify
 
 from .conftest import make_record_kwargs, read_jsonl_lines
 
@@ -538,6 +539,131 @@ class TestVerifyForgedEntry:
         assert result.ok is False
         assert result.failure is not None
         assert result.failure.kind is FailureKind.CONTENT_TAMPERED
+
+
+# ---------------------------------------------------------------------------
+# FR-43 — ``VerifyError`` opt-in wrap type
+#
+# Scoped acknowledgement: this file is already over the 500-line soft limit;
+# VerifyError tests live here because it is the natural conceptual home and
+# the addition is small. Moving the rest is out of scope for this change.
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyErrorShape:
+    """VerifyError(KronoError) carries a VerifyFailure and stringifies via it."""
+
+    def test_is_subclass_of_kronoerror(self) -> None:
+        assert issubclass(VerifyError, KronoError)
+        assert issubclass(VerifyError, Exception)
+
+    def test_exported_as_krono_verifyerror(self) -> None:
+        # Public re-export is the same class object as the internal one.
+        assert krono.VerifyError is VerifyError
+        assert "VerifyError" in krono.__all__
+
+    def test_constructor_stores_failure_and_str_uses_fr43_format(self) -> None:
+        failure = VerifyFailure(
+            line=3,
+            sequence_number=2,
+            kind=FailureKind.CONTENT_TAMPERED,
+            message="current_hash mismatch",
+            expected="ab" * 32,
+            actual="cd" * 32,
+        )
+        err = VerifyError(failure)
+        # .failure carries the wrapped object identity-equal.
+        assert err.failure is failure
+        # FR-43 _format shape: "krono verify failed at line <L> (sequence <S>): <kind>: <message>".
+        assert str(err) == (
+            "krono verify failed at line 3 (sequence 2): content_tampered: current_hash mismatch"
+        )
+
+    def test_str_format_with_none_sequence_uses_literal_hyphen(self) -> None:
+        """FR-43 + FR-39: when ``sequence_number is None`` (parse_error,
+        or missing_field where sequence_number itself is missing), the
+        ``(sequence <S>)`` parenthetical is rendered with the literal hyphen
+        ``-`` for log-column stability."""
+        failure = VerifyFailure(
+            line=1,
+            sequence_number=None,
+            kind=FailureKind.PARSE_ERROR,
+            message="invalid JSON at byte 7",
+        )
+        assert str(VerifyError(failure)) == (
+            "krono verify failed at line 1 (sequence -): parse_error: invalid JSON at byte 7"
+        )
+
+    def test_failure_attribute_typed_as_verifyfailure(self) -> None:
+        failure = VerifyFailure(
+            line=1, sequence_number=0, kind=FailureKind.PARSE_ERROR, message="bad"
+        )
+        err = VerifyError(failure)
+        assert isinstance(err.failure, VerifyFailure)
+        # Caller can branch on .failure.kind without re-parsing str(err).
+        assert err.failure.kind is FailureKind.PARSE_ERROR
+
+
+class TestVerifyDoesNotRaiseVerifyError:
+    """Regression guard: ``verify()`` STILL never raises ``VerifyError`` on a
+    tampered log — it always returns a ``VerifyResult(ok=False, ...)``. FR-43
+    is opt-in, not implicit."""
+
+    def test_tampered_log_returns_result_not_raise(self, key_env: str, log_path: Path) -> None:
+        events = _write_n_events(log_path, 3)
+        # Tamper: mutate a stored tool_name to break the chain hash.
+        events[1]["tool_name"] = "definitely_different"
+        _rewrite(log_path, events)
+
+        # Must NOT raise VerifyError. Must return ok=False.
+        result = verify(log_path)
+        assert result.ok is False
+        assert result.failure is not None
+        # The non-raise invariant — verify() returned a result, didn't throw.
+
+    def test_intact_log_does_not_raise_either(self, key_env: str, log_path: Path) -> None:
+        _write_n_events(log_path, 2)
+        # Intact log obviously doesn't raise; included so the "non-raising
+        # invariant" claim is symmetric across pass and fail branches.
+        result = verify(log_path)
+        assert result.ok is True
+        assert result.failure is None
+
+
+class TestVerifyErrorOptInWrap:
+    """The canonical opt-in usage pattern: ``if not r.ok: raise VerifyError(r.failure)``.
+    Round-trips ``r.failure`` through the raised exception."""
+
+    def test_opt_in_raise_pattern_on_tampered_log(self, key_env: str, log_path: Path) -> None:
+        events = _write_n_events(log_path, 2)
+        events[1]["reason"] = "tampered-after-the-fact"
+        _rewrite(log_path, events)
+
+        r = verify(log_path)
+        assert r.ok is False
+        assert r.failure is not None
+
+        # Opt-in wrap, exactly as documented in exceptions.py.
+        with pytest.raises(VerifyError) as exc_info:
+            if not r.ok:
+                raise VerifyError(r.failure)
+
+        # The raised VerifyError carries the SAME failure object verify() returned.
+        assert exc_info.value.failure is r.failure
+        # And str(err) matches the FR-43 _format shape applied to r.failure.
+        assert str(exc_info.value) == VerifyError._format(r.failure)
+        # And it really is catchable as KronoError (matters for callers that
+        # catch the base class).
+        assert isinstance(exc_info.value, KronoError)
+
+    def test_opt_in_pattern_no_raise_on_intact_log(self, key_env: str, log_path: Path) -> None:
+        _write_n_events(log_path, 2)
+        r = verify(log_path)
+        # The opt-in pattern is a no-op on the success branch.
+        if not r.ok:
+            raise VerifyError(r.failure)  # pragma: no cover — unreachable
+        # Reaching here means no raise happened — that IS the test.
+        assert r.ok is True
 
 
 # Suppress an unused-import warning for `os` if not used by helpers above.
