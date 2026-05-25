@@ -225,3 +225,6 @@ spec/*
 .mcp.json
 CLAUDE.md
 .claude/
+
+# Understand-Anything tool output
+.understand-anything/
